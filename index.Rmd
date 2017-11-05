@@ -1,0 +1,152 @@
+---
+title: "Prediction Assignment"
+author: "AG"
+date: "4 November 2017"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load the required package
+
+```{r load_packages}
+library(ggplot2)
+library(dplyr)
+library(readr)
+library(tidyr)
+library(caret)
+library(parallel)
+library(doParallel)
+```
+
+
+# Download & Read files 
+
+```{r download_files}
+
+url_train <- 'https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv'
+url_test <- 'https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv'
+
+destfile_train <- "pml-training.csv"
+destfile_test <- "pml-testing.csv"
+
+download.file(url = url_train, destfile = destfile_train)
+download.file(url = url_test, destfile = destfile_test)
+
+df_train <- read.csv(destfile_train)
+df_test <- read.csv(destfile_test)
+
+
+```
+
+# Data exploration and preparation
+
+```{r data_exploration0}
+dim(df_train)
+```
+
+The training data comprises 160 variables and 19622 observations. Running a summary of the data, suggest that there is a lot of NAs and blank values in many variables as demonstrated below.
+
+```{r data_exploration_NA}
+
+dim(df_train)
+
+# Helper function to identify NAs values 
+f_na <- function(a){
+    sum(is.na(a))
+}
+
+nacount <- apply(df_train, 2, f_na)
+nacount <- as.data.frame(nacount)
+
+ggplot(nacount, aes(nacount)) + geom_histogram(binwidth = 50)
+length(nacount[nacount$nacount>0, ])
+
+```
+
+There is 67 variables that have many NAs. Those variables will be therefore be removed from our attempt to build a predictive model.
+
+```{r data_prep_na}
+
+df2_train <- df_train
+
+# Remove NA values
+df2_train[, nacount > 0] <- NULL
+
+```
+
+
+
+```{r data_preparation_na}
+
+# Helper function to identify blank values 
+f_blank <- function(a) {
+    sum(a == "")
+}
+
+blankcount <- apply(df2_train, 2, f_blank)
+blankcount <- as.data.frame(blankcount)
+
+ggplot(blankcount, aes(blankcount)) + geom_histogram(binwidth = 50)
+length(blankcount[blankcount>0])
+
+```
+
+Conclusion: There is an extra 33 variables that have many blanks. Those variables will be therefore be removed from our attempt to build a predictive model.
+
+```{r data_preparation_blank}
+# Remove blank values
+df2_train[, blankcount > 0] <- NULL
+```
+
+
+# Remove variables that does not bring info
+
+The following variables do not seem to be useful to predict the manner in which people did the exercise so they will be removed from our attempt to build a predictive model.
+
+```{r remove_variables}
+df2_train$X <- NULL
+df2_train$user_name <- NULL
+df2_train$raw_timestamp_part_1 <- NULL
+df2_train$raw_timestamp_part_2 <- NULL
+df2_train$cvtd_timestamp <- NULL
+df2_train$new_window <- NULL
+df2_train$num_window <- NULL
+```
+
+
+# Build model
+
+Given that some varibles have a very high numbers of NAs and blanks, it is legitimate to discard them to build an initial model.
+
+```{r build_model}
+
+set.seed(123)
+
+#Set parallel processing to speed up the processing
+cluster <- makeCluster(detectCores() - 1) # convention to leave 1 core for OS
+registerDoParallel(cluster)
+
+# Set training parameters
+fitcontrol <- trainControl(method = "cv",
+                           number = 10,
+                           allowParallel = TRUE)
+
+model1 <- train(classe ~ ., method = "rf", data = df2_train, trControl = fitcontrol)
+
+#Stop parallel processing
+stopCluster(cluster)
+registerDoSEQ()
+
+#Analyse the confusion matrix
+sum(diag(model1$finalModel$confusion))/sum(model1$finalModel$confusion) * 100
+
+```
+
+The random forest coupled with 10-folds cross-validation give an excellent accuracy (99.55%)
+
+
